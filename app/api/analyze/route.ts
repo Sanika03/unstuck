@@ -18,14 +18,11 @@ export async function POST(req: Request) {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json(
-        { error: "Issue is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
     }
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-flash-latest",
     });
 
     const prompt = `
@@ -88,7 +85,7 @@ Return ONLY JSON. No markdown. No explanation.
           error: "Model returned invalid JSON",
           raw: text,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -99,7 +96,7 @@ Return ONLY JSON. No markdown. No explanation.
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
