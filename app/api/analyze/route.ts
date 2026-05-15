@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export type AnalysisResult = {
   likelyCauses: string[];
@@ -10,176 +11,94 @@ export type AnalysisResult = {
   confidenceRationale: string;
 };
 
-const SYSTEM_PROMPT = `You are a senior staff engineer pair-debugging with a solo developer in a live session. You are NOT a chatbot and NOT a tutorial. Be ruthless about signal vs. noise.
-
-Operating principles (apply rigorously):
-- Optimize for the FASTEST path to isolating the bug, not the most thorough explanation.
-- Always recommend the SIMPLEST possible validation first.
-- Read "Already tried" carefully.
-- Forbid generic advice.
-- Prefer falsifiable hypotheses.
-
-Output rules:
-- Respond ONLY by calling the report_analysis tool. No prose.
-`;
+const genAI = new GoogleGenerativeAI(process.env.Gemini_API_Key!);
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const { issue, stack, tried } = await req.json();
 
-    const issue = body.issue?.trim();
-    const stack = body.stack ?? "";
-    const tried = body.tried ?? "";
-
-    if (!issue || issue.length < 5) {
+    if (!issue) {
       return NextResponse.json(
-        { error: "Please describe your issue in more detail." },
+        { error: "Issue is required" },
         { status: 400 }
       );
     }
 
-    const apiKey = process.env.LOVABLE_API_KEY;
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+    });
 
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "AI gateway not configured." },
-        { status: 500 }
-      );
-    }
+    const prompt = `
+You are Unstuck, an expert senior software engineer and debugging assistant.
 
-    const userPrompt = `
+Your job:
+Analyze the user's bug and return structured debugging guidance.
+
+RULES:
+- Be extremely practical
+- No fluff
+- Focus on root cause thinking
+- Avoid generic advice like "check logs"
+- Output ONLY valid JSON
+
+USER INPUT:
+
 Issue:
 ${issue}
 
-Tech stack:
-${stack || "unspecified"}
+Stack Trace:
+${stack || "Not provided"}
 
-Already tried:
-${tried || "(nothing reported)"}
+Already Tried:
+${tried || "Not provided"}
+
+OUTPUT FORMAT (strict JSON):
+{
+  "likelyCauses": string[],
+  "bestNextSteps": string[],
+  "avoidRetrying": string[],
+  "fastestIsolationStrategy": string[],
+  "potentialTimeWasters": string[],
+  "confidenceLevel": "Low" | "Medium" | "High",
+  "confidenceRationale": string
+}
+
+GUIDELINES:
+- likelyCauses: root technical reasons
+- bestNextSteps: actionable fixes in order
+- avoidRetrying: wrong directions user might waste time on
+- fastestIsolationStrategy: how to debug fastest
+- potentialTimeWasters: common traps
+- confidenceLevel: how certain you are
+- confidenceRationale: why
+
+Return ONLY JSON. No markdown. No explanation.
 `;
 
-    const payload = {
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "report_analysis",
-            description: "Return the structured debugging analysis.",
-            parameters: {
-              type: "object",
-              properties: {
-                likelyCauses: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                bestNextSteps: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                avoidRetrying: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                fastestIsolationStrategy: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                potentialTimeWasters: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-                confidenceLevel: {
-                  type: "string",
-                  enum: ["Low", "Medium", "High"],
-                },
-                confidenceRationale: {
-                  type: "string",
-                },
-              },
-              required: [
-                "likelyCauses",
-                "bestNextSteps",
-                "avoidRetrying",
-                "fastestIsolationStrategy",
-                "potentialTimeWasters",
-                "confidenceLevel",
-                "confidenceRationale",
-              ],
-            },
-          },
-        },
-      ],
-      tool_choice: {
-        type: "function",
-        function: {
-          name: "report_analysis",
-        },
-      },
-    };
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
 
-    const resp = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    let parsed: AnalysisResult;
 
-    if (resp.status === 429) {
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
       return NextResponse.json(
-        { error: "Rate limit reached." },
-        { status: 429 }
-      );
-    }
-
-    if (!resp.ok) {
-      const txt = await resp.text();
-
-      console.error(txt);
-
-      return NextResponse.json(
-        { error: "AI analysis failed." },
+        {
+          error: "Model returned invalid JSON",
+          raw: text,
+        },
         { status: 500 }
       );
     }
-
-    const json = await resp.json();
-
-    const toolCall =
-      json?.choices?.[0]?.message?.tool_calls?.[0];
-
-    if (!toolCall?.function?.arguments) {
-      return NextResponse.json(
-        { error: "AI returned no analysis." },
-        { status: 500 }
-      );
-    }
-
-    const parsed: AnalysisResult = JSON.parse(
-      toolCall.function.arguments
-    );
 
     return NextResponse.json(parsed);
-  } catch (error) {
-    console.error(error);
-
+  } catch (err) {
     return NextResponse.json(
-      { error: "Internal server error." },
+      {
+        error: "Server error",
+        details: err instanceof Error ? err.message : "Unknown error",
+      },
       { status: 500 }
     );
   }
