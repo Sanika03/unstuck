@@ -18,10 +18,7 @@ export async function POST(req: Request) {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json(
-        { error: "Issue is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
     }
 
     const prompt = `
@@ -64,23 +61,31 @@ Format:
             },
           ],
         }),
-      }
+      },
     );
 
     const data = await response.json();
 
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    // extract JSON safely
+    const match = text.match(/\{[\s\S]*\}/);
+
+    if (!match) {
+      return NextResponse.json(
+        { error: "No JSON found in model output", raw: text },
+        { status: 500 },
+      );
+    }
 
     let parsed;
 
     try {
-      const cleaned = text.replace(/```json|```/g, "").trim();
-      parsed = JSON.parse(cleaned);
+      parsed = JSON.parse(match[0]);
     } catch (e) {
       return NextResponse.json(
         { error: "Invalid JSON from model", raw: text },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -91,7 +96,7 @@ Format:
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
