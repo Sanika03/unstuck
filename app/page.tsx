@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { analyzeIssue, type AnalysisResult } from "@/lib/analyze.functions";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +23,7 @@ import {
   Trash2,
   Hourglass,
 } from "lucide-react";
+import { AnalysisResult } from "./api/analyze/route";
 
 type Attempt = {
   id: string;
@@ -52,9 +52,23 @@ export default function HomePage() {
     setResult(null);
 
     try {
-      const res = await analyzeIssue({
-        data: { issue, stack, tried },
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          issue,
+          stack,
+          tried,
+        }),
       });
+
+      const res: AnalysisResult = await response.json();
+
+      if (!response.ok) {
+        throw new Error((res as any)?.error || "Something went wrong.");
+      }
 
       setResult(res);
 
@@ -92,7 +106,7 @@ export default function HomePage() {
 
   const completed = useMemo(
     () => attempts.filter((a) => a.done).length,
-    [attempts]
+    [attempts],
   );
 
   return (
@@ -104,7 +118,9 @@ export default function HomePage() {
               <Bug className="h-4 w-4" />
             </div>
             <div>
-              <h1 className="text-base font-semibold tracking-tight">Unstuck</h1>
+              <h1 className="text-base font-semibold tracking-tight">
+                Unstuck
+              </h1>
               <p className="text-xs text-muted-foreground">
                 Systematic debugging for solo developers
               </p>
@@ -209,7 +225,8 @@ export default function HomePage() {
                 <ListChecks className="h-4 w-4 text-primary" /> Attempt Tracker
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Mark each debugging attempt as you go — avoid retrying the same thing.
+                Mark each debugging attempt as you go — avoid retrying the same
+                thing.
               </p>
             </div>
             <div className="text-xs text-muted-foreground">
@@ -247,13 +264,17 @@ export default function HomePage() {
                   checked={a.done}
                   onCheckedChange={(v) =>
                     setAttempts((prev) =>
-                      prev.map((x) => (x.id === a.id ? { ...x, done: !!v } : x)),
+                      prev.map((x) =>
+                        x.id === a.id ? { ...x, done: !!v } : x,
+                      ),
                     )
                   }
                 />
                 <span
                   className={`flex-1 text-sm ${
-                    a.done ? "text-muted-foreground line-through" : "text-foreground"
+                    a.done
+                      ? "text-muted-foreground line-through"
+                      : "text-foreground"
                   }`}
                 >
                   {a.text}
@@ -283,10 +304,12 @@ function EmptyState() {
       <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background/60 text-primary">
         <Sparkles className="h-5 w-5" />
       </div>
-      <h3 className="mt-4 text-sm font-medium">Your analysis will appear here</h3>
+      <h3 className="mt-4 text-sm font-medium">
+        Your analysis will appear here
+      </h3>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        Describe your issue on the left and click Analyze Issue. You'll get likely
-        causes, next steps, and a focused isolation strategy.
+        Describe your issue on the left and click Analyze Issue. You'll get
+        likely causes, next steps, and a focused isolation strategy.
       </p>
     </div>
   );
@@ -323,7 +346,11 @@ function ResultView({ result }: { result: AnalysisResult }) {
       <ResultCard
         icon={<XCircle className="h-4 w-4" />}
         title="Avoid Retrying"
-        items={result.avoidRetrying.length ? result.avoidRetrying : ["Nothing flagged."]}
+        items={
+          result.avoidRetrying.length
+            ? result.avoidRetrying
+            : ["Nothing flagged."]
+        }
         tone="destructive"
       />
       <ResultCard
@@ -336,7 +363,11 @@ function ResultView({ result }: { result: AnalysisResult }) {
       <ResultCard
         icon={<Hourglass className="h-4 w-4" />}
         title="Potential Time Wasters"
-        items={result.potentialTimeWasters.length ? result.potentialTimeWasters : ["Nothing flagged."]}
+        items={
+          result.potentialTimeWasters.length
+            ? result.potentialTimeWasters
+            : ["Nothing flagged."]
+        }
         tone="destructive"
       />
       <ConfidenceCard
@@ -367,7 +398,9 @@ function ResultCard({
   return (
     <div className="rounded-lg border border-border bg-background/30 p-4">
       <div className="flex items-center gap-2">
-        <span className={`flex h-6 w-6 items-center justify-center rounded-md border ${accent}`}>
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-md border ${accent}`}
+        >
           {icon}
         </span>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -421,7 +454,9 @@ function ConfidenceCard({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{rationale}</p>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        {rationale}
+      </p>
     </div>
   );
 }
