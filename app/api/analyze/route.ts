@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export type AnalysisResult = {
   likelyCauses: string[];
@@ -11,40 +10,43 @@ export type AnalysisResult = {
   confidenceRationale: string;
 };
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
 export async function POST(req: Request) {
   try {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Issue is required" },
+        { status: 400 }
+      );
     }
 
     const prompt = `
-You are Unstuck, an expert senior software engineer.
+You are a strict JSON generator for a debugging assistant.
 
-Return ONLY valid JSON.
+CRITICAL RULES:
+- Output ONLY valid JSON
+- No markdown
+- No explanations
+- No text before or after JSON
+- If unsure, return empty arrays but still valid JSON
 
-Issue:
-${issue}
+Return EXACT format:
 
-Stack:
-${stack || "Not provided"}
-
-Already Tried:
-${tried || "Not provided"}
-
-Format:
 {
-  "likelyCauses": string[],
-  "bestNextSteps": string[],
-  "avoidRetrying": string[],
-  "fastestIsolationStrategy": string[],
-  "potentialTimeWasters": string[],
-  "confidenceLevel": "Low" | "Medium" | "High",
-  "confidenceRationale": string
+  "likelyCauses": [],
+  "bestNextSteps": [],
+  "avoidRetrying": [],
+  "fastestIsolationStrategy": [],
+  "potentialTimeWasters": [],
+  "confidenceLevel": "Low",
+  "confidenceRationale": ""
 }
+
+USER INPUT:
+Issue: ${issue}
+Stack: ${stack || "Not provided"}
+Already Tried: ${tried || "Not provided"}
 `;
 
     const response = await fetch(
@@ -61,31 +63,66 @@ Format:
             },
           ],
         }),
-      },
+      }
     );
 
     const data = await response.json();
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const candidate = data?.candidates?.[0];
 
-    // extract JSON safely
-    const match = text.match(/\{[\s\S]*\}/);
-
-    if (!match) {
+    if (!candidate) {
       return NextResponse.json(
-        { error: "No JSON found in model output", raw: text },
-        { status: 500 },
+        {
+          error: "No response from model",
+          raw: data,
+        },
+        { status: 500 }
       );
     }
 
-    let parsed;
+    const text =
+      candidate?.content?.parts?.map((p: any) => p.text).join("") || "";
+
+    // SAFE EMPTY CHECK
+    if (!text || text.trim().length === 0) {
+      return NextResponse.json({
+        likelyCauses: ["Empty model response"],
+        bestNextSteps: ["Retry request"],
+        avoidRetrying: [],
+        fastestIsolationStrategy: [],
+        potentialTimeWasters: [],
+        confidenceLevel: "Low",
+        confidenceRationale: "Model returned empty output",
+      });
+    }
+
+    // SAFE JSON EXTRACTION
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+
+    if (start === -1 || end === -1) {
+      return NextResponse.json(
+        {
+          error: "No JSON found in model output",
+          raw: text,
+        },
+        { status: 500 }
+      );
+    }
+
+    const jsonString = text.slice(start, end + 1);
+
+    let parsed: AnalysisResult;
 
     try {
-      parsed = JSON.parse(match[0]);
+      parsed = JSON.parse(jsonString);
     } catch (e) {
       return NextResponse.json(
-        { error: "Invalid JSON from model", raw: text },
-        { status: 500 },
+        {
+          error: "Invalid JSON from model",
+          raw: text,
+        },
+        { status: 500 }
       );
     }
 
@@ -96,7 +133,7 @@ Format:
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
