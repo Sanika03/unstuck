@@ -11,7 +11,7 @@ export type AnalysisResult = {
   confidenceRationale: string;
 };
 
-const genAI = new GoogleGenerativeAI(process.env.Gemini_API_Key!);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: Request) {
   try {
