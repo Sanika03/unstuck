@@ -18,38 +18,27 @@ export async function POST(req: Request) {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Issue is required" },
+        { status: 400 }
+      );
     }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-    });
-
     const prompt = `
-You are Unstuck, an expert senior software engineer and debugging assistant.
+You are Unstuck, an expert senior software engineer.
 
-Your job:
-Analyze the user's bug and return structured debugging guidance.
-
-RULES:
-- Be extremely practical
-- No fluff
-- Focus on root cause thinking
-- Avoid generic advice like "check logs"
-- Output ONLY valid JSON
-
-USER INPUT:
+Return ONLY valid JSON.
 
 Issue:
 ${issue}
 
-Stack Trace:
+Stack:
 ${stack || "Not provided"}
 
 Already Tried:
 ${tried || "Not provided"}
 
-OUTPUT FORMAT (strict JSON):
+Format:
 {
   "likelyCauses": string[],
   "bestNextSteps": string[],
@@ -59,33 +48,39 @@ OUTPUT FORMAT (strict JSON):
   "confidenceLevel": "Low" | "Medium" | "High",
   "confidenceRationale": string
 }
-
-GUIDELINES:
-- likelyCauses: root technical reasons
-- bestNextSteps: actionable fixes in order
-- avoidRetrying: wrong directions user might waste time on
-- fastestIsolationStrategy: how to debug fastest
-- potentialTimeWasters: common traps
-- confidenceLevel: how certain you are
-- confidenceRationale: why
-
-Return ONLY JSON. No markdown. No explanation.
 `;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+        }),
+      }
+    );
 
-    let parsed: AnalysisResult;
+    const data = await response.json();
+
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    let parsed;
 
     try {
-      parsed = JSON.parse(text);
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      parsed = JSON.parse(cleaned);
     } catch (e) {
       return NextResponse.json(
-        {
-          error: "Model returned invalid JSON",
-          raw: text,
-        },
-        { status: 500 },
+        { error: "Invalid JSON from model", raw: text },
+        { status: 500 }
       );
     }
 
@@ -96,7 +91,7 @@ Return ONLY JSON. No markdown. No explanation.
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
