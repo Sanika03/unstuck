@@ -15,18 +15,21 @@ export async function POST(req: Request) {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Issue is required" },
+        { status: 400 }
+      );
     }
 
     const prompt = `
-You are a strict JSON generator for a debugging assistant.
+You are a strict JSON debugging assistant.
 
-CRITICAL RULES:
-- Output ONLY valid JSON
+RULES:
+- Return ONLY valid JSON
 - No markdown
 - No explanations
-- No text before or after JSON
-- If unsure, return empty arrays but still valid JSON
+- No backticks
+- No extra text
 
 Return EXACT format:
 
@@ -41,69 +44,67 @@ Return EXACT format:
 }
 
 USER INPUT:
-Issue: ${issue}
-Stack: ${stack || "Not provided"}
-Already Tried: ${tried || "Not provided"}
+
+Issue:
+${issue}
+
+Stack:
+${stack || "Not provided"}
+
+Already Tried:
+${tried || "Not provided"}
 `;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      "https://openrouter.ai/api/v1/chat/completions",
       {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
+          "HTTP-Referer": "https://unstuck.vercel.app",
+          "X-OpenRouter-Title": "Unstuck",
         },
         body: JSON.stringify({
-          contents: [
+          model: "openai/gpt-4o-mini",
+          messages: [
             {
-              parts: [{ text: prompt }],
+              role: "user",
+              content: prompt,
             },
           ],
         }),
-      },
+      }
     );
 
     const data = await response.json();
 
-    const candidate = data?.candidates?.[0];
+    // DEBUG
+    console.log("OPENROUTER RESPONSE:", JSON.stringify(data, null, 2));
 
-    if (!candidate) {
+    const text = data?.choices?.[0]?.message?.content || "";
+
+    if (!text) {
       return NextResponse.json(
         {
-          error: "No response from model",
+          error: "Empty model response",
           raw: data,
         },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
-    const text =
-      candidate?.content?.parts?.map((p: any) => p.text).join("") || "";
-
-    // SAFE EMPTY CHECK
-    if (!text || text.trim().length === 0) {
-      return NextResponse.json({
-        likelyCauses: ["Empty model response"],
-        bestNextSteps: ["Retry request"],
-        avoidRetrying: [],
-        fastestIsolationStrategy: [],
-        potentialTimeWasters: [],
-        confidenceLevel: "Low",
-        confidenceRationale: "Model returned empty output",
-      });
-    }
-
-    // SAFE JSON EXTRACTION
+    // extract JSON safely
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
 
     if (start === -1 || end === -1) {
       return NextResponse.json(
         {
-          error: "No JSON found in model output",
+          error: "No JSON found in output",
           raw: text,
         },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -116,10 +117,10 @@ Already Tried: ${tried || "Not provided"}
     } catch (e) {
       return NextResponse.json(
         {
-          error: "Invalid JSON from model",
+          error: "Invalid JSON",
           raw: text,
         },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -130,7 +131,7 @@ Already Tried: ${tried || "Not provided"}
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
