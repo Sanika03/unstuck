@@ -15,10 +15,7 @@ export async function POST(req: Request) {
     const { issue, stack, tried } = await req.json();
 
     if (!issue) {
-      return NextResponse.json(
-        { error: "Issue is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Issue is required" }, { status: 400 });
     }
 
     const prompt = `
@@ -50,7 +47,7 @@ Already Tried: ${tried || "Not provided"}
 `;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {
@@ -63,7 +60,7 @@ Already Tried: ${tried || "Not provided"}
             },
           ],
         }),
-      }
+      },
     );
 
     const data = await response.json();
@@ -76,7 +73,7 @@ Already Tried: ${tried || "Not provided"}
           error: "No response from model",
           raw: data,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -106,7 +103,7 @@ Already Tried: ${tried || "Not provided"}
           error: "No JSON found in model output",
           raw: text,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -122,7 +119,7 @@ Already Tried: ${tried || "Not provided"}
           error: "Invalid JSON from model",
           raw: text,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -133,7 +130,7 @@ Already Tried: ${tried || "Not provided"}
         error: "Server error",
         details: err instanceof Error ? err.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
